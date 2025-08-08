@@ -7,14 +7,12 @@ type Task = {
   description: string;
   completed: boolean;
 };
-
 const TaskManager = () => {
   const [tasks, setTasks] = useState<Task[]>(() => {
     const stored = localStorage.getItem("tasks");
     return stored ? JSON.parse(stored) : [];
   });
-
-  const [title, setTitle] = useState("");
+const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [description, setDescription] = useState("");
   const [search, setSearch] = useState("");

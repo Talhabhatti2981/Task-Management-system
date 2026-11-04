@@ -164,7 +164,7 @@ const TaskManager = () => {
     setDate("");
     setDescription("");
     setPriority("medium");
-    setAssigneeId(selectedMemberId === "all" ? "" : selectedMemberId);
+    setAssigneeId("");
     setEditingId(null);
     setErrors({ title: "", date: "", description: "" });
     setTouched({ title: false, date: false, description: false });
@@ -176,6 +176,7 @@ const TaskManager = () => {
     if (!validateTask()) return;
 
     const memberId = assigneeId === "" ? null : Number(assigneeId);
+    const assignedMember = members.find((member) => member.id === memberId);
 
     if (editingId !== null) {
       setTasks((prev) =>
@@ -185,7 +186,7 @@ const TaskManager = () => {
             : task
         )
       );
-      setNotice("Task updated");
+      setNotice("Task updated — showing the full team board");
     } else {
       setTasks((prev) => [
         ...prev,
@@ -199,9 +200,14 @@ const TaskManager = () => {
           priority,
         },
       ]);
-      setNotice("Task added");
+      setNotice(
+        assignedMember
+          ? `Task added for ${assignedMember.name} and shown with everyone’s work`
+          : "Task added and shown with everyone’s work"
+      );
     }
 
+    setSelectedMemberId("all");
     resetTaskForm();
   };
 
@@ -279,10 +285,12 @@ const TaskManager = () => {
     };
 
     setMembers((prev) => [...prev, newMember]);
-    setSelectedMemberId(newMember.id);
-    setAssigneeId(newMember.id);
+    setSelectedMemberId("all");
+    setAssigneeId("");
     closeMemberModal();
-    setNotice(`${newMember.name} joined the team. Their tasks are ready.`);
+    setNotice(
+      `${newMember.name} joined the team. Their tasks will show with everyone else’s.`
+    );
     setShowSidebar(false);
   };
 
@@ -325,9 +333,6 @@ const TaskManager = () => {
 
   const filteredTasks = useMemo(() => {
     return tasks
-      .filter((task) =>
-        selectedMemberId === "all" ? true : task.memberId === selectedMemberId
-      )
       .filter((task) => task.title.toLowerCase().includes(search.toLowerCase()))
       .filter((task) =>
         filter === "All"
@@ -343,12 +348,9 @@ const TaskManager = () => {
           return new Date(a.date).getTime() - new Date(b.date).getTime();
         return new Date(b.date).getTime() - new Date(a.date).getTime();
       });
-  }, [tasks, selectedMemberId, search, filter, sort]);
+  }, [tasks, search, filter, sort]);
 
-  const visibleMembers =
-    selectedMemberId === "all"
-      ? members
-      : members.filter((member) => member.id === selectedMemberId);
+  const visibleMembers = members;
 
   const unassignedTasks = filteredTasks.filter((task) => task.memberId === null);
   const total = tasks.length;
@@ -461,6 +463,7 @@ const TaskManager = () => {
                       setAssigneeId(member.id);
                       setShowSidebar(false);
                     }}
+                    title={`Assign the next task to ${member.name}. All team tasks stay visible.`}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                       isActive ? "bg-white/10" : "hover:bg-white/5"
                     }`}
@@ -508,14 +511,12 @@ const TaskManager = () => {
             <div className="pl-12 lg:pl-0">
               <p className="text-sm font-medium text-indigo-600">Workspace</p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
-                {selectedMember
-                  ? `${selectedMember.name}'s tasks`
-                  : "Team task board"}
+                Team task board
               </h1>
               <p className="mt-2 max-w-xl text-sm text-slate-500">
                 {selectedMember
-                  ? `${selectedMember.role}${selectedMember.email ? ` · ${selectedMember.email}` : ""}. Add work here and it stays on this member’s list.`
-                  : "Add members, assign tasks, and each person sees only the work they own."}
+                  ? `Next task will be assigned to ${selectedMember.name}. It still shows here with everyone else’s work.`
+                  : "Every member’s tasks stay on this board. Assign work to anyone and it appears with the full list."}
               </p>
             </div>
             <button
@@ -591,9 +592,7 @@ const TaskManager = () => {
                   {editingId !== null ? "Edit task" : "Add a task"}
                 </h2>
                 <p className="text-sm text-slate-500">
-                  {selectedMember
-                    ? `This task will be assigned to ${selectedMember.name} unless you choose someone else.`
-                    : "Assign it to a member so they can see it on their list."}
+                  Assign it to any member. After you add it, the board shows every member’s tasks together.
                 </p>
               </div>
             </div>
@@ -668,9 +667,11 @@ const TaskManager = () => {
                 </label>
                 <select
                   value={assigneeId}
-                  onChange={(e) =>
-                    setAssigneeId(e.target.value ? Number(e.target.value) : "")
-                  }
+                  onChange={(e) => {
+                    const nextId = e.target.value ? Number(e.target.value) : "";
+                    setAssigneeId(nextId);
+                    setSelectedMemberId(nextId === "" ? "all" : nextId);
+                  }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400"
                 >
                   <option value="">Unassigned</option>

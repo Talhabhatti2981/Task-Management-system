@@ -14,7 +14,7 @@ import {
   HiOutlineUserPlus,
   HiOutlineXMark,
 } from "react-icons/hi2";
-import { loadBoard, readLocalBoard, saveBoard } from "./lib/boardStore";
+import { loadBoard, readLocalBoard, saveBoard, subscribeBoard } from "./lib/boardStore";
 import type { Member, Priority, Task } from "./types";
 
 type StatusFilter = "All" | "Pending" | "Done";
@@ -103,8 +103,19 @@ const TaskManager = () => {
     };
 
     void hydrate();
+
+    const unsubscribe = subscribeBoard((board, shared) => {
+      setIsShared(shared);
+      if (board.updatedAt <= updatedAtRef.current) return;
+      skipPersistRef.current = true;
+      updatedAtRef.current = board.updatedAt;
+      setMembers(board.members);
+      setTasks(board.tasks);
+    });
+
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, []);
 
@@ -123,20 +134,6 @@ const TaskManager = () => {
     updatedAtRef.current = snapshot.updatedAt;
     void saveBoard(snapshot).then(setIsShared);
   }, [members, tasks]);
-
-  useEffect(() => {
-    const timer = window.setInterval(async () => {
-      const { board, shared } = await loadBoard();
-      setIsShared(shared);
-      if (board.updatedAt <= updatedAtRef.current) return;
-      skipPersistRef.current = true;
-      updatedAtRef.current = board.updatedAt;
-      setMembers(board.members);
-      setTasks(board.tasks);
-    }, 2500);
-
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -205,11 +202,11 @@ const TaskManager = () => {
       setTasks((prev) => [
         ...prev,
         {
-          id: Date.now(),
+        id: Date.now(),
           title: title.trim(),
-          date,
+        date,
           description: description.trim(),
-          completed: false,
+        completed: false,
           memberId,
           priority,
         },
@@ -362,21 +359,21 @@ const TaskManager = () => {
 
   const filteredTasks = useMemo(() => {
     return tasks
-      .filter((task) => task.title.toLowerCase().includes(search.toLowerCase()))
-      .filter((task) =>
-        filter === "All"
-          ? true
-          : filter === "Pending"
-            ? !task.completed
-            : task.completed
-      )
-      .sort((a, b) => {
-        if (sort === "title-asc") return a.title.localeCompare(b.title);
-        if (sort === "title-desc") return b.title.localeCompare(a.title);
-        if (sort === "date-asc")
-          return new Date(a.date).getTime() - new Date(b.date).getTime();
+    .filter((task) => task.title.toLowerCase().includes(search.toLowerCase()))
+    .filter((task) =>
+      filter === "All"
+        ? true
+        : filter === "Pending"
+        ? !task.completed
+        : task.completed
+    )
+    .sort((a, b) => {
+      if (sort === "title-asc") return a.title.localeCompare(b.title);
+      if (sort === "title-desc") return b.title.localeCompare(a.title);
+      if (sort === "date-asc")
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
         return new Date(b.date).getTime() - new Date(a.date).getTime();
-      });
+    });
   }, [tasks, search, filter, sort]);
 
   const visibleMembers = members;
@@ -556,12 +553,12 @@ const TaskManager = () => {
                 className={`mt-3 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
                   isShared
                     ? "bg-emerald-50 text-emerald-700"
-                    : "bg-amber-50 text-amber-700"
+                    : "bg-sky-50 text-sky-700"
                 }`}
               >
                 {isShared
-                  ? "Live shared board — everyone using this app sees the same members and tasks"
-                  : "Saved only on this browser until the shared board connects"}
+                  ? "Live shared board — every user with this app sees the same members and tasks"
+                  : "Connecting to the shared board so other users can see this team"}
               </p>
             </div>
             <div className="flex flex-wrap gap-2 self-start">
@@ -605,25 +602,25 @@ const TaskManager = () => {
           <div className="mb-6 grid gap-3 md:grid-cols-3">
             <label className="relative md:col-span-1">
               <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search tasks..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                <input
+                  type="text"
+                  placeholder="Search tasks..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none ring-indigo-500/20 focus:border-indigo-400 focus:ring-4"
-              />
+                />
             </label>
-            <select
-              value={filter}
+                <select
+                  value={filter}
               onChange={(e) => setFilter(e.target.value as StatusFilter)}
               className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-indigo-400"
-            >
+                >
               <option value="All">All status</option>
-              <option value="Pending">Pending</option>
-              <option value="Done">Done</option>
-            </select>
-            <select
-              value={sort}
+                  <option value="Pending">Pending</option>
+                  <option value="Done">Done</option>
+                </select>
+                <select
+                  value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
               className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-indigo-400"
             >
@@ -631,7 +628,7 @@ const TaskManager = () => {
               <option value="date-desc">Due date · latest</option>
               <option value="title-asc">Title A–Z</option>
               <option value="title-desc">Title Z–A</option>
-            </select>
+                </select>
           </div>
 
           {members.length === 0 && unassignedTasks.length === 0 ? (
@@ -678,7 +675,7 @@ const TaskManager = () => {
                             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${member.color}`}
                           >
                             {getInitials(member.name)}
-                          </span>
+          </span>
                           <div className="min-w-0">
                             <h3 className="truncate font-semibold text-slate-900">
                               {member.name}
@@ -700,10 +697,10 @@ const TaskManager = () => {
                         <div className="flex gap-2 text-xs">
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
                             {memberTaskCount(member.id)} tasks
-                          </span>
+          </span>
                           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
                             {doneCount} done
-                          </span>
+          </span>
                         </div>
                         <button
                           onClick={() => openNewTask(member.id)}
@@ -785,11 +782,11 @@ const TaskManager = () => {
             exit={{ opacity: 0 }}
             onClick={closeTaskModal}
           >
-            <motion.form
-              onSubmit={addOrUpdateTask}
+        <motion.form
+          onSubmit={addOrUpdateTask}
               onClick={(e) => e.stopPropagation()}
               initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 16 }}
               className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
             >
@@ -814,52 +811,52 @@ const TaskManager = () => {
               </div>
 
               <div className="space-y-4">
-                <div>
+            <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Title
                   </label>
-                  <input
+              <input
                     autoFocus
-                    type="text"
+                type="text"
                     placeholder="Write a clear task title"
-                    value={title}
-                    onChange={(e) => {
-                      setTitle(e.target.value);
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
                       setTouched((prev) => ({ ...prev, title: true }));
                       validateTask(e.target.value, date, description);
-                    }}
+                }}
                     className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-4 focus:ring-indigo-500/15 ${
-                      errors.title && touched.title
+                  errors.title && touched.title
                         ? "border-rose-400"
                         : "border-slate-200"
-                    }`}
-                  />
-                  {errors.title && touched.title && (
+                }`}
+              />
+              {errors.title && touched.title && (
                     <p className="mt-1 text-sm text-rose-600">{errors.title}</p>
-                  )}
-                </div>
+              )}
+            </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
+            <div>
                     <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Due date
                     </label>
-                    <input
-                      type="date"
-                      min={today}
-                      value={date}
-                      onChange={(e) => {
-                        setDate(e.target.value);
+              <input
+                type="date"
+                min={today}
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
                         setTouched((prev) => ({ ...prev, date: true }));
                         validateTask(title, e.target.value, description);
-                      }}
+                }}
                       className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-4 focus:ring-indigo-500/15 ${
-                        errors.date && touched.date
+                  errors.date && touched.date
                           ? "border-rose-400"
                           : "border-slate-200"
-                      }`}
-                    />
-                    {errors.date && touched.date && (
+                }`}
+              />
+              {errors.date && touched.date && (
                       <p className="mt-1 text-sm text-rose-600">{errors.date}</p>
                     )}
                   </div>
@@ -903,34 +900,34 @@ const TaskManager = () => {
                     <p className="mt-1 text-sm text-slate-500">
                       Add a member first so the task appears on their column.
                     </p>
-                  )}
-                </div>
+              )}
+            </div>
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Description
                   </label>
-                  <textarea
+              <textarea
                     placeholder="What needs to be done?"
-                    value={description}
-                    onChange={(e) => {
-                      setDescription(e.target.value);
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
                       setTouched((prev) => ({ ...prev, description: true }));
                       validateTask(title, date, e.target.value);
-                    }}
+                }}
                     className={`h-28 w-full resize-none rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-4 focus:ring-indigo-500/15 ${
-                      errors.description && touched.description
+                  errors.description && touched.description
                         ? "border-rose-400"
                         : "border-slate-200"
-                    }`}
-                  />
-                  {errors.description && touched.description && (
+                }`}
+              />
+              {errors.description && touched.description && (
                     <p className="mt-1 text-sm text-rose-600">
-                      {errors.description}
-                    </p>
-                  )}
-                </div>
-              </div>
+                  {errors.description}
+                </p>
+              )}
+            </div>
+          </div>
 
               <div className="mt-6 flex justify-end gap-3">
                 <button
@@ -940,8 +937,8 @@ const TaskManager = () => {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
+            <button
+              type="submit"
                   className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
                 >
                   {editingId !== null ? "Save changes" : "Add task"}
@@ -983,7 +980,7 @@ const TaskManager = () => {
                   aria-label="Close"
                 >
                   <HiOutlineXMark className="h-5 w-5" />
-                </button>
+            </button>
               </div>
 
               <div className="space-y-4">
@@ -1059,26 +1056,26 @@ const TaskManager = () => {
               </div>
 
               <div className="mt-6 flex justify-end gap-3">
-                <button
-                  type="button"
+              <button
+                type="button"
                   onClick={closeMemberModal}
                   className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
+              >
+                Cancel
+              </button>
                 <button
                   type="submit"
                   className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
                 >
                   Add member
                 </button>
-              </div>
-            </motion.form>
+          </div>
+        </motion.form>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
+          <AnimatePresence>
         {notice && (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -1121,10 +1118,10 @@ function TaskRow({
   getDaysLeft,
   getDaysText,
 }: TaskRowProps) {
-  const daysLeft = getDaysLeft(task.date);
+              const daysLeft = getDaysLeft(task.date);
   const overdue = !task.completed && daysLeft < 0;
 
-  return (
+              return (
     <li
       className={`border-t border-slate-100 px-5 py-4 first:border-t-0 ${
         overdue ? "bg-rose-50/60" : ""
@@ -1145,13 +1142,13 @@ function TaskRow({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+                    <div>
               <h4
                 className={`font-semibold ${
                   task.completed ? "text-slate-400 line-through" : "text-slate-900"
-                }`}
-              >
-                {task.title}
+                        }`}
+                      >
+                        {task.title}
               </h4>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                 <span
@@ -1171,39 +1168,39 @@ function TaskRow({
               </div>
             </div>
             <div className="flex gap-1">
-              <button
+                      <button
                 onClick={onEdit}
                 className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
                 aria-label="Edit task"
-              >
+                      >
                 <HiOutlinePencilSquare className="h-4 w-4" />
-              </button>
-              <button
+                      </button>
+                      <button
                 onClick={onDelete}
                 className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                 aria-label="Delete task"
-              >
+                      >
                 <HiOutlineTrash className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          <p
+                      </button>
+                    </div>
+                  </div>
+                  <p
             className={`mt-2 text-sm text-slate-600 ${
               expanded ? "" : "line-clamp-2"
-            }`}
-          >
-            {task.description}
-          </p>
+                    }`}
+                  >
+                    {task.description}
+                  </p>
           {task.description.length > 90 && (
-            <button
+                  <button
               onClick={onExpand}
               className="mt-1 text-sm font-medium text-indigo-600 hover:text-indigo-500"
             >
               {expanded ? "Show less" : "Read more"}
-            </button>
+                  </button>
           )}
         </div>
-      </div>
+    </div>
     </li>
   );
 }

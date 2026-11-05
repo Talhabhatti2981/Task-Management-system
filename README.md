@@ -1,69 +1,39 @@
-# React + TypeScript + Vite
+# TaskFlow
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+TaskFlow stores employee profiles and tasks in Supabase. Administrators can invite employees, assign tasks, and review team activity. Employees can set their own password from the invitation email and manage their own tasks.
 
-Currently, two official plugins are available:
+## Supabase setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. Run `supabase/schema.sql` in the Supabase SQL Editor.
+2. In Supabase Authentication, create the first administrator using the email you want to use for the `Admin` login alias.
+3. Promote that account by running this SQL with the administrator's email:
 
-## Expanding the ESLint configuration
+   ```sql
+   update public.profiles
+   set role = 'admin'
+   where user_id = (
+     select id from auth.users
+     where lower(email) = lower('admin@example.com')
+   );
+   ```
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+4. Add the following values to `.env`. `ADMIN_EMAIL` must match the Auth account created above.
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+   ```text
+   SUPABASE_URL=your-project-url
+   SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+   SUPABASE_SECRET_KEY=your-secret-key
+   ADMIN_EMAIL=admin@example.com
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
+5. Configure Supabase Auth email delivery (SMTP) and add your local and deployed app URLs to the Auth redirect URL allowlist. Invitation links return to the app where employees create their passwords.
+6. Start the app with `npm run dev`.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+The `Admin` username is an alias for `ADMIN_EMAIL`; its password is managed by Supabase Auth. Do not use the example password `admin123` for a real deployment. Keep `SUPABASE_SECRET_KEY` server-side and set it in the server environment of the deployment host. Never expose it as a `VITE_` variable.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Data and access
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- `profiles` stores each Auth user's role, employee link, and last active time.
+- `members` stores employee details and invitation linkage.
+- `tasks` stores each task and its assignment.
+- Row Level Security is enabled. The app accesses data through authenticated server API routes; administrators can view the whole team, and members can access only their own tasks.

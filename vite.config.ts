@@ -1,87 +1,58 @@
-import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } from "vite";
+import {
+  defineConfig,
+  loadEnv,
+  type Plugin,
+  type PreviewServer,
+  type ViteDevServer,
+} from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import fs from "node:fs";
-import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import boardHandler from "./api/board";
+import membersHandler from "./api/members";
+import profileHandler from "./api/profile";
+import activityHandler from "./api/activity";
 
-const boardFile = path.resolve("board-data.json");
+const attachApi = (server: ViteDevServer | PreviewServer) => {
+  const routes = [
+    ["/api/board", boardHandler],
+    ["/api/members", membersHandler],
+    ["/api/profile", profileHandler],
+    ["/api/activity", activityHandler],
+  ] as const;
 
-const emptyBoard = () =>
-  JSON.stringify({ members: [], tasks: [], updatedAt: 0 }, null, 2);
-
-const readBoardFile = () => {
-  if (!fs.existsSync(boardFile)) {
-    fs.writeFileSync(boardFile, emptyBoard());
+  for (const [route, handler] of routes) {
+    server.middlewares.use(route, (req, res, next) => {
+      void handler(req as IncomingMessage, res as ServerResponse).catch(next);
+    });
   }
-  return fs.readFileSync(boardFile, "utf8");
 };
 
-const sendJson = (res: ServerResponse, status: number, payload: string) => {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
-  res.end(payload);
-};
-
-const attachBoardApi = (server: ViteDevServer | PreviewServer) => {
-  server.middlewares.use(
-    "/api/board",
-    (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-      if (req.method === "GET") {
-        sendJson(res, 200, readBoardFile());
-        return;
-      }
-
-      if (req.method === "PUT" || req.method === "POST") {
-        const chunks: Buffer[] = [];
-        req.on("data", (chunk: Buffer) => chunks.push(chunk));
-        req.on("end", () => {
-          try {
-            const body = Buffer.concat(chunks).toString("utf8");
-            const parsed = JSON.parse(body || "{}") as {
-              members?: unknown;
-              tasks?: unknown;
-              updatedAt?: number;
-            };
-            const payload = {
-              members: Array.isArray(parsed.members) ? parsed.members : [],
-              tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
-              updatedAt:
-                typeof parsed.updatedAt === "number"
-                  ? parsed.updatedAt
-                  : Date.now(),
-            };
-            const serialized = JSON.stringify(payload, null, 2);
-            fs.writeFileSync(boardFile, serialized);
-            sendJson(res, 200, serialized);
-          } catch {
-            sendJson(res, 400, JSON.stringify({ error: "Invalid board data" }));
-          }
-        });
-        return;
-      }
-
-      next();
-    }
-  );
-};
-
-const sharedBoardPlugin = (): Plugin => ({
-  name: "shared-board",
+const taskflowApiPlugin = (): Plugin => ({
+  name: "taskflow-api",
   configureServer(server) {
-    attachBoardApi(server);
+    attachApi(server);
   },
   configurePreviewServer(server) {
-    attachBoardApi(server);
+    attachApi(server);
   },
 });
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), sharedBoardPlugin()],
-  define: {
-    global: "globalThis",
-  },
-  optimizeDeps: {
-    include: ["yjs", "y-webrtc"],
-  },
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  process.env.SUPABASE_URL ||= env.SUPABASE_URL;
+  process.env.SUPABASE_SECRET_KEY ||= env.SUPABASE_SECRET_KEY;
+  process.env.SUPABASE_PUBLISHABLE_KEY ||= env.SUPABASE_PUBLISHABLE_KEY;
+
+  return {
+    plugins: [react(), tailwindcss(), taskflowApiPlugin()],
+    define: {
+      global: "globalThis",
+      "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(env.SUPABASE_URL),
+      "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
+        env.SUPABASE_PUBLISHABLE_KEY
+      ),
+      "import.meta.env.VITE_ADMIN_EMAIL": JSON.stringify(env.ADMIN_EMAIL),
+    },
+  };
 });

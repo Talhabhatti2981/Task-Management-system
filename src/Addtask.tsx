@@ -14,22 +14,18 @@ import {
   HiOutlineUserPlus,
   HiOutlineXMark,
 } from "react-icons/hi2";
-import { loadBoard, readLocalBoard, saveBoard, subscribeBoard } from "./lib/boardStore";
-import type { Member, Priority, Task } from "./types";
+import { authenticatedFetch } from "./lib/api";
+import { loadBoard, saveBoard, subscribeBoard } from "./lib/boardStore";
+import type { Member, Priority, Task, UserProfile } from "./types";
+
+type TaskManagerProps = {
+  profile: UserProfile;
+  accessToken: string;
+  onSignOut: () => void;
+};
 
 type StatusFilter = "All" | "Pending" | "Done";
 type SortKey = "date-asc" | "date-desc" | "title-asc" | "title-desc";
-
-const AVATAR_COLORS = [
-  "bg-indigo-500",
-  "bg-emerald-500",
-  "bg-sky-500",
-  "bg-amber-500",
-  "bg-rose-500",
-  "bg-violet-500",
-  "bg-teal-500",
-  "bg-fuchsia-500",
-];
 
 const getInitials = (name: string) =>
   name
@@ -39,15 +35,14 @@ const getInitials = (name: string) =>
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
-const TaskManager = () => {
-  const [members, setMembers] = useState<Member[]>(
-    () => readLocalBoard().members
-  );
-  const [tasks, setTasks] = useState<Task[]>(() => readLocalBoard().tasks);
+const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
+  const isAdmin = profile.role === "admin";
+  const [members, setMembers] = useState<Member[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isShared, setIsShared] = useState(false);
   const readyRef = useRef(false);
   const skipPersistRef = useRef(false);
-  const updatedAtRef = useRef(readLocalBoard().updatedAt);
+  const updatedAtRef = useRef(0);
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
@@ -61,7 +56,7 @@ const TaskManager = () => {
   const [showMoreId, setShowMoreId] = useState<number | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<number | "all">(
-    "all"
+    isAdmin ? "all" : profile.memberId ?? "all"
   );
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -90,9 +85,10 @@ const TaskManager = () => {
 
   useEffect(() => {
     let cancelled = false;
+    readyRef.current = false;
 
     const hydrate = async () => {
-      const { board, shared } = await loadBoard();
+      const { board, shared } = await loadBoard(accessToken);
       if (cancelled) return;
       skipPersistRef.current = true;
       setMembers(board.members);
@@ -104,9 +100,21 @@ const TaskManager = () => {
 
     void hydrate();
 
-    const unsubscribe = subscribeBoard((board, shared) => {
+    const unsubscribe = subscribeBoard(accessToken, (board, shared) => {
       setIsShared(shared);
-      if (board.updatedAt <= updatedAtRef.current) return;
+      if (board.updatedAt <= updatedAtRef.current) {
+        setMembers((current) => {
+          const presenceChanged = board.members.some(
+            (member, index) =>
+              current[index]?.id !== member.id ||
+              current[index]?.status !== member.status
+          );
+          if (!presenceChanged) return current;
+          skipPersistRef.current = true;
+          return board.members;
+        });
+        return;
+      }
       skipPersistRef.current = true;
       updatedAtRef.current = board.updatedAt;
       setMembers(board.members);
@@ -117,7 +125,7 @@ const TaskManager = () => {
       cancelled = true;
       unsubscribe();
     };
-  }, []);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!readyRef.current) return;
@@ -132,8 +140,8 @@ const TaskManager = () => {
       updatedAt: Date.now(),
     };
     updatedAtRef.current = snapshot.updatedAt;
-    void saveBoard(snapshot).then(setIsShared);
-  }, [members, tasks]);
+    void saveBoard(snapshot, accessToken).then(setIsShared);
+  }, [members, tasks, accessToken]);
 
   useEffect(() => {
     if (!notice) return;
@@ -186,7 +194,11 @@ const TaskManager = () => {
     setTouched({ title: true, date: true, description: true });
     if (!validateTask()) return;
 
-    const memberId = assigneeId === "" ? null : Number(assigneeId);
+    const memberId = isAdmin
+      ? assigneeId === ""
+        ? null
+        : Number(assigneeId)
+      : profile.memberId;
     const assignedMember = members.find((member) => member.id === memberId);
 
     if (editingId !== null) {
@@ -197,7 +209,7 @@ const TaskManager = () => {
             : task
         )
       );
-      setNotice("Task updated — showing the full team board");
+      setNotice(isAdmin ? "Task updated on the team board" : "Task updated");
     } else {
       setTasks((prev) => [
         ...prev,
@@ -212,13 +224,15 @@ const TaskManager = () => {
         },
       ]);
       setNotice(
-        assignedMember
-          ? `Task added for ${assignedMember.name} and shown with everyone’s work`
-          : "Task added and shown with everyone’s work"
+        isAdmin && assignedMember
+          ? `Task added for ${assignedMember.name}`
+          : isAdmin
+            ? "Task added to the team board"
+            : "Today’s task added"
       );
     }
 
-    setSelectedMemberId("all");
+    setSelectedMemberId(isAdmin ? "all" : profile.memberId ?? "all");
     resetTaskForm();
     setShowTaskModal(false);
   };
@@ -251,9 +265,11 @@ const TaskManager = () => {
 
   const openNewTask = (memberId?: number) => {
     resetTaskForm();
-    if (memberId) {
-      setAssigneeId(memberId);
-      setSelectedMemberId(memberId);
+    const assignee = isAdmin ? memberId : profile.memberId ?? undefined;
+    if (!isAdmin) setDate(today);
+    if (assignee) {
+      setAssigneeId(assignee);
+      setSelectedMemberId(assignee);
     }
     setShowTaskModal(true);
   };
@@ -280,7 +296,7 @@ const TaskManager = () => {
       nextErrors.role = "Role is required";
     }
 
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       nextErrors.email = "Enter a valid email";
     }
 
@@ -297,27 +313,35 @@ const TaskManager = () => {
     setMemberErrors({ name: "", role: "", email: "" });
   };
 
-  const addMember = (e: React.FormEvent) => {
+  const addMember = async (e: React.FormEvent) => {
     e.preventDefault();
     setMemberAttempted(true);
     if (!validateMember()) return;
 
-    const newMember: Member = {
-      id: Date.now(),
-      name: memberName.trim(),
-      role: memberRole.trim(),
-      email: memberEmail.trim(),
-      color: AVATAR_COLORS[members.length % AVATAR_COLORS.length],
-    };
+    try {
+      const response = await authenticatedFetch("/api/members", {
+        method: "POST",
+        body: JSON.stringify({
+          name: memberName.trim(),
+          role: memberRole.trim(),
+          email: memberEmail.trim(),
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Could not invite member");
 
-    setMembers((prev) => [...prev, newMember]);
-    setSelectedMemberId("all");
-    setAssigneeId("");
-    closeMemberModal();
-    setNotice(
-      `${newMember.name} joined the team. Their tasks will show with everyone else’s.`
-    );
-    setShowSidebar(false);
+      const { board, shared } = await loadBoard(accessToken);
+      skipPersistRef.current = true;
+      updatedAtRef.current = board.updatedAt;
+      setMembers(board.members);
+      setTasks(board.tasks);
+      setIsShared(shared);
+      closeMemberModal();
+      setNotice(`Invitation sent to ${memberEmail.trim()}`);
+      setShowSidebar(false);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not invite member");
+    }
   };
 
   const deleteMember = (id: number) => {
@@ -330,14 +354,23 @@ const TaskManager = () => {
       return;
     }
 
-    setMembers((prev) => prev.filter((item) => item.id !== id));
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.memberId === id ? { ...task, memberId: null } : task
-      )
-    );
-    if (selectedMemberId === id) setSelectedMemberId("all");
-    if (assigneeId === id) setAssigneeId("");
+    void authenticatedFetch(`/api/members?id=${id}`, { method: "DELETE" })
+      .then(async (response) => {
+        const result = (await response.json()) as { error?: string };
+        if (!response.ok) throw new Error(result.error ?? "Could not remove member");
+        const { board, shared } = await loadBoard(accessToken);
+        skipPersistRef.current = true;
+        updatedAtRef.current = board.updatedAt;
+        setMembers(board.members);
+        setTasks(board.tasks);
+        setIsShared(shared);
+        if (selectedMemberId === id) setSelectedMemberId("all");
+        if (assigneeId === id) setAssigneeId("");
+        setNotice(`${member?.name ?? "Member"} removed`);
+      })
+      .catch((error: unknown) =>
+        setNotice(error instanceof Error ? error.message : "Could not remove member")
+      );
   };
 
   const getDaysLeft = (dueDate: string) => {
@@ -354,8 +387,6 @@ const TaskManager = () => {
     if (days === 0) return "Due today";
     return "Overdue";
   };
-
-  const selectedMember = members.find((member) => member.id === selectedMemberId);
 
   const filteredTasks = useMemo(() => {
     return tasks
@@ -457,18 +488,20 @@ const TaskManager = () => {
 
         <div className="mt-8 flex items-center justify-between px-6">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Team members
+            {isAdmin ? "Team members" : "My workspace"}
           </p>
-          <button
-            onClick={() => {
-              setShowMemberModal(true);
-              setShowSidebar(false);
-            }}
-            className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
-            aria-label="Add member"
-          >
-            <HiOutlineUserPlus className="h-4 w-4" />
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setShowMemberModal(true);
+                setShowSidebar(false);
+              }}
+              className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+              aria-label="Invite member"
+            >
+              <HiOutlineUserPlus className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         <div className="mt-3 flex-1 overflow-y-auto px-3 pb-6">
@@ -522,32 +555,36 @@ const TaskManager = () => {
           )}
         </div>
 
-        <div className="border-t border-white/10 p-4">
-          <button
-            onClick={() => {
-              setShowMemberModal(true);
-              setShowSidebar(false);
-            }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-400"
-          >
-            <HiOutlinePlus className="h-4 w-4" />
-            Add member
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="border-t border-white/10 p-4">
+            <button
+              onClick={() => {
+                setShowMemberModal(true);
+                setShowSidebar(false);
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-400"
+            >
+              <HiOutlinePlus className="h-4 w-4" />
+              Invite employee
+            </button>
+          </div>
+        )}
       </aside>
 
       <main className="flex-1 min-w-0 px-4 py-8 sm:px-8 lg:px-10">
         <div className="mx-auto max-w-[1600px]">
           <header className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="pl-12 lg:pl-0">
-              <p className="text-sm font-medium text-indigo-600">Workspace</p>
+              <p className="text-sm font-medium text-emerald-700">
+                {isAdmin ? "Administrator workspace" : "Employee workspace"}
+              </p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
-                Team task board
+                {isAdmin ? "Team overview" : "My tasks"}
               </h1>
               <p className="mt-2 max-w-xl text-sm text-slate-500">
-                {selectedMember
-                  ? `Next task will go to ${selectedMember.name}. Every member still stays visible on this board.`
-                  : "Every member has a column here. Add a task to anyone and the whole team still stays in view."}
+                {isAdmin
+                  ? "Review employee activity, assign work, and track every task across the team."
+                  : "Add today’s work and keep your own progress up to date."}
               </p>
               <p
                 className={`mt-3 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
@@ -557,8 +594,8 @@ const TaskManager = () => {
                 }`}
               >
                 {isShared
-                  ? "Live shared board — every user with this app sees the same members and tasks"
-                  : "Connecting to the shared board so other users can see this team"}
+                  ? "Connected to the Supabase workspace"
+                  : "Connecting to the Supabase workspace"}
               </p>
             </div>
             <div className="flex flex-wrap gap-2 self-start">
@@ -567,24 +604,34 @@ const TaskManager = () => {
                 className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
               >
                 <HiOutlinePlus className="h-4 w-4" />
-                Add task
+                {isAdmin ? "Add task" : "Add today’s task"}
               </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowMemberModal(true)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  <HiOutlineUserPlus className="h-4 w-4" />
+                  Invite employee
+                </button>
+              )}
               <button
-                onClick={() => setShowMemberModal(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                onClick={onSignOut}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
-                <HiOutlineUserPlus className="h-4 w-4" />
-                New member
+                Sign out
               </button>
             </div>
           </header>
 
           <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-4">
             {[
-              { label: "Total tasks", value: total, hint: "Across the team" },
+              { label: isAdmin ? "Total tasks" : "My tasks", value: total, hint: isAdmin ? "Across the team" : "Assigned to you" },
               { label: "Pending", value: pending, hint: "Still open" },
               { label: "Completed", value: completed, hint: "Finished work" },
-              { label: "Members", value: members.length, hint: "People on the board" },
+              ...(isAdmin
+                ? [{ label: "Employees", value: members.length, hint: "In your workspace" }]
+                : [{ label: "Due today", value: tasks.filter((task) => task.date === today && !task.completed).length, hint: "Open tasks" }]),
             ].map((stat) => (
               <div
                 key={stat.label}
@@ -636,17 +683,29 @@ const TaskManager = () => {
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
                 <HiOutlineUserGroup className="h-7 w-7" />
               </div>
-              <h2 className="text-xl font-semibold">Start with your team</h2>
+              <h2 className="text-xl font-semibold">
+                {isAdmin ? "Build your team" : "No tasks yet"}
+              </h2>
               <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-                Add members first. Everyone appears on this board together, and
-                any task you add shows on that person’s column.
+                {isAdmin
+                  ? "Invite employees to create accounts and start assigning work."
+                  : "Add your first task for today to get started."}
               </p>
-              <button
-                onClick={() => setShowMemberModal(true)}
-                className="mt-6 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Add your first member
-              </button>
+              {isAdmin ? (
+                <button
+                  onClick={() => setShowMemberModal(true)}
+                  className="mt-6 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Invite your first employee
+                </button>
+              ) : (
+                <button
+                  onClick={() => openNewTask()}
+                  className="mt-6 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Add today’s task
+                </button>
+              )}
             </div>
           ) : (
             <div className="grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
@@ -683,15 +742,43 @@ const TaskManager = () => {
                             <p className="truncate text-sm text-slate-500">
                               {member.role}
                             </p>
+                            {isAdmin && (
+                              <span
+                                className={`mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                                  member.status === "active"
+                                    ? "text-emerald-700"
+                                    : member.status === "invited"
+                                      ? "text-amber-700"
+                                      : "text-slate-500"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    member.status === "active"
+                                      ? "bg-emerald-500"
+                                      : member.status === "invited"
+                                        ? "bg-amber-500"
+                                        : "bg-slate-400"
+                                  }`}
+                                />
+                                {member.status === "active"
+                                  ? "Active now"
+                                  : member.status === "invited"
+                                    ? "Invite sent"
+                                    : "Offline"}
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <button
-                          onClick={() => deleteMember(member.id)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                          aria-label={`Remove ${member.name}`}
-                        >
-                          <HiOutlineTrash className="h-4 w-4" />
-                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => deleteMember(member.id)}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                            aria-label={`Remove ${member.name}`}
+                          >
+                            <HiOutlineTrash className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-2">
                         <div className="flex gap-2 text-xs">
@@ -796,8 +883,9 @@ const TaskManager = () => {
                     {editingId !== null ? "Edit task" : "Add a task"}
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Assign it to any member. It will show on their column with
-                    the rest of the team.
+                    {isAdmin
+                      ? "Assign work to an employee or leave it unassigned."
+                      : "Add a task for today. It will appear in your personal list."}
                   </p>
                 </div>
                 <button
@@ -876,32 +964,38 @@ const TaskManager = () => {
                   </div>
                 </div>
 
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Assign to
-                  </label>
-                  <select
-                    value={assigneeId}
-                    onChange={(e) => {
-                      const nextId = e.target.value ? Number(e.target.value) : "";
-                      setAssigneeId(nextId);
-                      setSelectedMemberId(nextId === "" ? "all" : nextId);
-                    }}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400"
-                  >
-                    <option value="">Unassigned</option>
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name} · {member.role}
-                      </option>
-                    ))}
-                  </select>
-                  {members.length === 0 && (
-                    <p className="mt-1 text-sm text-slate-500">
-                      Add a member first so the task appears on their column.
+                {isAdmin ? (
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Assign to
+                    </label>
+                    <select
+                      value={assigneeId}
+                      onChange={(e) => {
+                        const nextId = e.target.value ? Number(e.target.value) : "";
+                        setAssigneeId(nextId);
+                        setSelectedMemberId(nextId === "" ? "all" : nextId);
+                      }}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400"
+                    >
+                      <option value="">Unassigned</option>
+                      {members.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name} · {member.role}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Assigned to
+                    </span>
+                    <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                      {profile.name}
                     </p>
-              )}
-            </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -970,7 +1064,7 @@ const TaskManager = () => {
                 <div>
                   <h2 className="text-xl font-semibold">Add a member</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    After you add them, you’ll see their full task list.
+                    They’ll receive an email link to create their password.
                   </p>
                 </div>
                 <button
@@ -1031,7 +1125,7 @@ const TaskManager = () => {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-medium">
-                    Email <span className="text-slate-400">(optional)</span>
+                    Email for invitation
                   </label>
                   <input
                     type="email"
@@ -1067,7 +1161,7 @@ const TaskManager = () => {
                   type="submit"
                   className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
                 >
-                  Add member
+                  Send invitation
                 </button>
           </div>
         </motion.form>

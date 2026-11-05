@@ -6,6 +6,7 @@ export type Member = {
   role: string;
   email: string;
   color: string;
+  status?: "active" | "offline" | "invited";
 };
 
 export type Task = {
@@ -22,4 +23,11 @@ export type BoardSnapshot = {
   members: Member[];
   tasks: Task[];
   updatedAt: number;
+};
+
+export type UserProfile = {
+  role: "admin" | "member";
+  memberId: number | null;
+  name: string;
+  email: string;
 };

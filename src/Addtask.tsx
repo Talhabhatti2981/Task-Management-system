@@ -332,23 +332,23 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
       setTasks(board.tasks);
       setIsShared(shared);
       closeMemberModal();
-      if (invite.emailed) {
-        setNotice(`Invitation sent to ${memberEmail.trim()}`);
-      } else if (invite.inviteLink) {
+      if (invite.inviteLink) {
         try {
           await navigator.clipboard.writeText(invite.inviteLink);
           setNotice(
-            `Email limit reached. Live invite link copied — send it to ${memberEmail.trim()}.`
+            `Invite ready for ${memberEmail.trim()}. Live link copied — WhatsApp/email se bhej do.`
           );
         } catch {
           setNotice(
-            `Email limit reached. Share this live invite link: ${invite.inviteLink}`
+            `Invite ready. Share this live link with ${memberEmail.trim()}: ${invite.inviteLink}`
           );
         }
+      } else if (invite.emailed) {
+        setNotice(`Invitation sent to ${memberEmail.trim()}`);
       } else {
         setNotice(
           invite.message ||
-            `Member added. Ask ${memberEmail.trim()} to open the live site invite from you.`
+            `Member added. Share the live site login with ${memberEmail.trim()}.`
         );
       }
       setShowSidebar(false);

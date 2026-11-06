@@ -48,7 +48,14 @@ set search_path = ''
 as $$
 begin
   insert into public.profiles (user_id, role)
-  values (new.id, 'member')
+  values (
+    new.id,
+    case
+      when lower(coalesce(new.email, '')) = 'admin@gmail.com' then 'admin'
+      when not exists (select 1 from public.profiles where role = 'admin') then 'admin'
+      else 'member'
+    end
+  )
   on conflict (user_id) do nothing;
   return new;
 end;

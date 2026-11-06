@@ -13,6 +13,7 @@ function AuthPanel({ mode, onComplete }: AuthPanelProps) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
   const isSetup = mode === "set-password";
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -43,11 +44,30 @@ function AuthPanel({ mode, onComplete }: AuthPanelProps) {
           ? import.meta.env.VITE_ADMIN_EMAIL
           : loginName;
         if (!email) throw new Error("Set ADMIN_EMAIL in .env to enable the Admin username.");
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (signInError) throw signInError;
+        const redirectTo =
+          import.meta.env.VITE_APP_URL ||
+          "https://task-management-system-4xj4.vercel.app/";
+        if (creatingAccount) {
+          const { error: signUpError } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: redirectTo },
+          });
+          if (signUpError) throw signUpError;
+          const { error: signInAfterSignUpError } =
+            await supabase.auth.signInWithPassword({ email, password });
+          if (signInAfterSignUpError) {
+            throw new Error(
+              "Account created. Confirm the email if asked, then sign in on the live site."
+            );
+          }
+        } else {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+          if (signInError) throw signInError;
+        }
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Authentication failed.");
@@ -132,8 +152,28 @@ function AuthPanel({ mode, onComplete }: AuthPanelProps) {
               disabled={busy}
               className="w-full rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
             >
-              {busy ? "Please wait..." : isSetup ? "Set password and continue" : "Sign in"}
+              {busy
+                ? "Please wait..."
+                : isSetup
+                  ? "Set password and continue"
+                  : creatingAccount
+                    ? "Create account"
+                    : "Sign in"}
             </button>
+            {!isSetup && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreatingAccount((current) => !current);
+                  setError("");
+                }}
+                className="w-full pt-1 text-sm font-medium text-slate-500 hover:text-emerald-700"
+              >
+                {creatingAccount
+                  ? "Already have an account? Sign in"
+                  : "New workspace? Create the admin account"}
+              </button>
+            )}
           </form>
         </div>
       </section>

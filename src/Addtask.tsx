@@ -319,7 +319,7 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
     if (!validateMember()) return;
 
     try {
-      await inviteMember({
+      const invite = await inviteMember({
         name: memberName.trim(),
         role: memberRole.trim(),
         email: memberEmail.trim(),
@@ -332,7 +332,25 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
       setTasks(board.tasks);
       setIsShared(shared);
       closeMemberModal();
-      setNotice(`Invitation sent to ${memberEmail.trim()}`);
+      if (invite.emailed) {
+        setNotice(`Invitation sent to ${memberEmail.trim()}`);
+      } else if (invite.inviteLink) {
+        try {
+          await navigator.clipboard.writeText(invite.inviteLink);
+          setNotice(
+            `Email limit reached. Live invite link copied — send it to ${memberEmail.trim()}.`
+          );
+        } catch {
+          setNotice(
+            `Email limit reached. Share this live invite link: ${invite.inviteLink}`
+          );
+        }
+      } else {
+        setNotice(
+          invite.message ||
+            `Member added. Ask ${memberEmail.trim()} to open the live site invite from you.`
+        );
+      }
       setShowSidebar(false);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not invite member");

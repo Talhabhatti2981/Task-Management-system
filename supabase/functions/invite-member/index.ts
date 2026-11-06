@@ -16,6 +16,9 @@ const json = (status: number, body: unknown) =>
 
 const LIVE_APP_URL = "https://task-management-system-4xj4.vercel.app/";
 
+const isRateLimited = (message: string | undefined) =>
+  /rate limit|email rate/i.test(message ?? "");
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -87,31 +90,63 @@ Deno.serve(async (req) => {
         });
       }
 
-      const { data: inviteData, error: inviteError } =
-        await admin.auth.admin.inviteUserByEmail(email, {
-          data: { name, role },
-          redirectTo: LIVE_APP_URL,
+      let userId: string | null = null;
+      let inviteLink: string | null = null;
+      let emailed = false;
+
+      const inviteAttempt = await admin.auth.admin.inviteUserByEmail(email, {
+        data: { name, role },
+        redirectTo: LIVE_APP_URL,
+      });
+
+      if (!inviteAttempt.error && inviteAttempt.data.user) {
+        userId = inviteAttempt.data.user.id;
+        emailed = true;
+      } else if (isRateLimited(inviteAttempt.error?.message)) {
+        const linkAttempt = await admin.auth.admin.generateLink({
+          type: "invite",
+          email,
+          options: {
+            data: { name, role },
+            redirectTo: LIVE_APP_URL,
+          },
         });
-      if (inviteError || !inviteData.user) {
+        if (linkAttempt.error || !linkAttempt.data.user) {
+          await admin.from("members").delete().eq("id", id);
+          return json(502, {
+            error:
+              linkAttempt.error?.message ??
+              "Could not create invitation while email is rate limited",
+          });
+        }
+        userId = linkAttempt.data.user.id;
+        inviteLink = linkAttempt.data.properties?.action_link ?? null;
+      } else {
         await admin.from("members").delete().eq("id", id);
         return json(502, {
-          error: inviteError?.message ?? "Could not send invitation email",
+          error:
+            inviteAttempt.error?.message ?? "Could not send invitation email",
         });
+      }
+
+      if (!userId) {
+        await admin.from("members").delete().eq("id", id);
+        return json(502, { error: "Could not create invited user" });
       }
 
       const { error: memberUpdateError } = await admin
         .from("members")
-        .update({ auth_user_id: inviteData.user.id })
+        .update({ auth_user_id: userId })
         .eq("id", id);
 
       const { error: profileUpsertError } = await admin.from("profiles").upsert({
-        user_id: inviteData.user.id,
+        user_id: userId,
         role: "member",
         member_id: id,
       });
 
       if (memberUpdateError || profileUpsertError) {
-        await admin.auth.admin.deleteUser(inviteData.user.id);
+        await admin.auth.admin.deleteUser(userId);
         await admin.from("members").delete().eq("id", id);
         return json(500, {
           error:
@@ -121,7 +156,14 @@ Deno.serve(async (req) => {
         });
       }
 
-      return json(200, { invited: true });
+      return json(200, {
+        invited: true,
+        emailed,
+        inviteLink,
+        message: emailed
+          ? "Invitation email sent"
+          : "Email limit reached. Share this live invite link with the member.",
+      });
     }
 
     if (req.method === "DELETE") {
@@ -137,7 +179,9 @@ Deno.serve(async (req) => {
         .eq("id", id)
         .maybeSingle();
       if (memberError) {
-        return json(500, { error: memberError.message || "Could not load member" });
+        return json(500, {
+          error: memberError.message || "Could not load member",
+        });
       }
       if (!member) return json(404, { error: "Member not found" });
 
@@ -151,7 +195,9 @@ Deno.serve(async (req) => {
       }
 
       const { error } = await admin.from("members").delete().eq("id", id);
-      if (error) return json(500, { error: error.message || "Could not remove member" });
+      if (error) {
+        return json(500, { error: error.message || "Could not remove member" });
+      }
       return json(200, { removed: true });
     }
 

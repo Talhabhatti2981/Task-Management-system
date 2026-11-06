@@ -202,11 +202,18 @@ const readFunctionError = async (error: unknown, data: unknown) => {
   return error instanceof Error ? error.message : "Could not invite member";
 };
 
+export type InviteResult = {
+  invited: boolean;
+  emailed: boolean;
+  inviteLink: string | null;
+  message?: string;
+};
+
 export const inviteMember = async (input: {
   name: string;
   role: string;
   email: string;
-}) => {
+}): Promise<InviteResult> => {
   const client = requireClient();
   const { data, error } = await client.functions.invoke("invite-member", {
     body: input,
@@ -217,6 +224,13 @@ export const inviteMember = async (input: {
       String((data as { error?: string }).error || "Could not invite member")
     );
   }
+  const result = (data ?? {}) as Partial<InviteResult>;
+  return {
+    invited: Boolean(result.invited),
+    emailed: Boolean(result.emailed),
+    inviteLink: typeof result.inviteLink === "string" ? result.inviteLink : null,
+    message: typeof result.message === "string" ? result.message : undefined,
+  };
 };
 
 export const removeMember = async (id: number) => {

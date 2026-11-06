@@ -43,6 +43,8 @@ export default defineConfig(({ mode }) => {
   process.env.SUPABASE_URL ||= env.SUPABASE_URL;
   process.env.SUPABASE_SECRET_KEY ||= env.SUPABASE_SECRET_KEY;
   process.env.SUPABASE_PUBLISHABLE_KEY ||= env.SUPABASE_PUBLISHABLE_KEY;
+  process.env.APP_URL ||=
+    env.APP_URL || "https://task-management-system-4xj4.vercel.app";
 
   return {
     plugins: [react(), tailwindcss(), taskflowApiPlugin()],
@@ -53,6 +55,9 @@ export default defineConfig(({ mode }) => {
         env.SUPABASE_PUBLISHABLE_KEY
       ),
       "import.meta.env.VITE_ADMIN_EMAIL": JSON.stringify(env.ADMIN_EMAIL),
+      "import.meta.env.VITE_APP_URL": JSON.stringify(
+        env.APP_URL || "https://task-management-system-4xj4.vercel.app"
+      ),
     },
   };
 });

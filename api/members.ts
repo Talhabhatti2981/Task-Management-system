@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { getInviteRedirectUrl } from "./appUrl";
 import { ApiError, getSupabaseAdmin, readJsonBody, requireAdmin } from "./boardStorage";
 
 const sendError = (res: ServerResponse, error: unknown) => {
@@ -50,11 +49,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         );
       }
 
+      const origin = req.headers.origin;
       const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(
         email.toLowerCase(),
         {
           data: { name, role },
-          redirectTo: getInviteRedirectUrl(),
+          ...(origin ? { redirectTo: `${origin}/` } : {}),
         }
       );
       if (inviteError || !inviteData.user) {

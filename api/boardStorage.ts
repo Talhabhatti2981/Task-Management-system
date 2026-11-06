@@ -100,7 +100,7 @@ const timestamp = (value: string | null | undefined) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-export const readBoard = async (_context: AuthContext): Promise<BoardSnapshot> => {
+export const readBoard = async (context: AuthContext): Promise<BoardSnapshot> => {
   const supabase = getSupabaseAdmin();
   let membersQuery = supabase
     .from("members")
@@ -112,6 +112,11 @@ export const readBoard = async (_context: AuthContext): Promise<BoardSnapshot> =
       "id, title, due_date, description, completed, member_id, priority, updated_at"
     )
     .order("due_date");
+
+  if (context.profile.role === "member") {
+    membersQuery = membersQuery.eq("id", context.profile.member_id ?? -1);
+    tasksQuery = tasksQuery.eq("member_id", context.profile.member_id ?? -1);
+  }
 
   const [memberResult, taskResult] = await Promise.all([
     membersQuery,
@@ -125,7 +130,7 @@ export const readBoard = async (_context: AuthContext): Promise<BoardSnapshot> =
   const taskRows = taskResult.data ?? [];
   const memberIds = memberRows.map((member) => member.id);
   const profileResult =
-    memberIds.length > 0
+    context.profile.role === "admin" && memberIds.length > 0
       ? await supabase
           .from("profiles")
           .select("member_id, last_seen_at")

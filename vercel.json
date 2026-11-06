@@ -9,7 +9,6 @@
     "ADMIN_EMAIL": "admin@gmail.com"
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]
 }

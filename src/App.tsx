@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import Addtask from "./Addtask";
 import AuthPanel from "./AuthPanel";
 import { supabase } from "./lib/supabase";
+import { loadProfile, touchActivity } from "./lib/workspace";
 import type { UserProfile } from "./types";
 import "./App.css";
 
@@ -41,13 +42,9 @@ function App() {
     }
 
     let cancelled = false;
-    const loadProfile = async () => {
+    const loadCurrentProfile = async () => {
       try {
-        const response = await fetch("/api/profile", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        const result = (await response.json()) as UserProfile & { error?: string };
-        if (!response.ok) throw new Error(result.error ?? "Could not load profile");
+        const result = await loadProfile();
         if (!cancelled) setProfile(result);
       } catch (error) {
         if (!cancelled) {
@@ -56,7 +53,7 @@ function App() {
       }
     };
 
-    void loadProfile();
+    void loadCurrentProfile();
     return () => {
       cancelled = true;
     };
@@ -64,11 +61,7 @@ function App() {
 
   useEffect(() => {
     if (!session) return;
-    const ping = () =>
-      void fetch("/api/activity", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+    const ping = () => void touchActivity();
     ping();
     const interval = window.setInterval(ping, 30000);
     return () => window.clearInterval(interval);
@@ -78,12 +71,7 @@ function App() {
     setPasswordSetup(false);
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
     if (!session) return;
-    const response = await fetch("/api/profile", {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
-    const result = (await response.json()) as UserProfile & { error?: string };
-    if (!response.ok) throw new Error(result.error ?? "Could not load profile");
-    setProfile(result);
+    setProfile(await loadProfile());
   };
 
   const signOut = async () => {

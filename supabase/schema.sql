@@ -69,7 +69,46 @@ create trigger on_auth_user_created
 revoke all on function private.handle_new_auth_user() from public, anon, authenticated;
 drop function if exists public.handle_new_auth_user();
 
--- Promote the first administrator after creating their Auth user:
--- update public.profiles
--- set role = 'admin'
--- where user_id = (select id from auth.users where lower(email) = lower('admin@example.com'));
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where user_id = auth.uid() and role = 'admin'
+  );
+$$;
+
+grant execute on function public.is_admin() to authenticated;
+
+create policy "authenticated read profiles"
+  on public.profiles for select to authenticated using (true);
+create policy "users update own last seen"
+  on public.profiles for update to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+create policy "authenticated read members"
+  on public.members for select to authenticated using (true);
+create policy "admins write members"
+  on public.members for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+create policy "authenticated read tasks"
+  on public.tasks for select to authenticated using (true);
+create policy "admins write tasks"
+  on public.tasks for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+create policy "members write own tasks"
+  on public.tasks for all to authenticated
+  using (
+    member_id is not null
+    and member_id = (select member_id from public.profiles where user_id = auth.uid())
+  )
+  with check (
+    member_id is not null
+    and member_id = (select member_id from public.profiles where user_id = auth.uid())
+  );

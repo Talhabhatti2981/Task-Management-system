@@ -60,6 +60,12 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
   );
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const [inviteLinkModal, setInviteLinkModal] = useState<{
+    name: string;
+    email: string;
+    link: string;
+  } | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
   const [memberName, setMemberName] = useState("");
   const [memberRole, setMemberRole] = useState("");
   const [memberEmail, setMemberEmail] = useState("");
@@ -318,11 +324,14 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
     setMemberAttempted(true);
     if (!validateMember()) return;
 
+    setInviteBusy(true);
     try {
+      const invitedName = memberName.trim();
+      const invitedEmail = memberEmail.trim();
       const invite = await inviteMember({
-        name: memberName.trim(),
+        name: invitedName,
         role: memberRole.trim(),
-        email: memberEmail.trim(),
+        email: invitedEmail,
       });
 
       const { board, shared } = await loadBoard(accessToken);
@@ -332,28 +341,30 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
       setTasks(board.tasks);
       setIsShared(shared);
       closeMemberModal();
+      setShowSidebar(false);
+
       if (invite.inviteLink) {
         try {
           await navigator.clipboard.writeText(invite.inviteLink);
-          setNotice(
-            `Invite ready for ${memberEmail.trim()}. Live link copied — WhatsApp/email se bhej do.`
-          );
         } catch {
-          setNotice(
-            `Invite ready. Share this live link with ${memberEmail.trim()}: ${invite.inviteLink}`
-          );
+          // Clipboard may be blocked; the modal still shows the link.
         }
-      } else if (invite.emailed) {
-        setNotice(`Invitation sent to ${memberEmail.trim()}`);
+        setInviteLinkModal({
+          name: invitedName,
+          email: invitedEmail,
+          link: invite.inviteLink,
+        });
+        setNotice(`Invite ready for ${invitedName}. Share the live link.`);
       } else {
         setNotice(
           invite.message ||
-            `Member added. Share the live site login with ${memberEmail.trim()}.`
+            `Member added. Create a new invite link and share it with ${invitedEmail}.`
         );
       }
-      setShowSidebar(false);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not invite member");
+    } finally {
+      setInviteBusy(false);
     }
   };
 
@@ -1075,7 +1086,8 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
                 <div>
                   <h2 className="text-xl font-semibold">Add a member</h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    They’ll receive an email link to create their password.
+                    You’ll get a live invite link. Send it on WhatsApp/email —
+                    they open it and create their own password.
                   </p>
                 </div>
                 <button
@@ -1170,12 +1182,79 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
               </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+                  disabled={inviteBusy}
+                  className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-60"
                 >
-                  Send invitation
+                  {inviteBusy ? "Creating invite..." : "Create invite link"}
                 </button>
           </div>
         </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {inviteLinkModal && (
+          <motion.div
+            className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setInviteLinkModal(null)}
+          >
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+            >
+              <h2 className="text-xl font-semibold text-slate-950">
+                Invite ready
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Send this link to{" "}
+                <span className="font-semibold text-slate-900">
+                  {inviteLinkModal.name}
+                </span>{" "}
+                ({inviteLinkModal.email}). When they open it on the live site,
+                they will create their own password. No password from you.
+              </p>
+              <label className="mt-4 block">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Live invite link
+                </span>
+                <textarea
+                  readOnly
+                  value={inviteLinkModal.link}
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700 outline-none"
+                />
+              </label>
+              <div className="mt-5 flex flex-wrap justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setInviteLinkModal(null)}
+                  className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(inviteLinkModal.link);
+                      setNotice("Invite link copied");
+                    } catch {
+                      setNotice("Copy failed — select the link and copy manually");
+                    }
+                  }}
+                  className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500"
+                >
+                  Copy link
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

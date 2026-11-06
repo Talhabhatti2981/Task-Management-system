@@ -13,7 +13,9 @@ function App() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [profileError, setProfileError] = useState("");
   const [passwordSetup, setPasswordSetup] = useState(() =>
-    /type=(invite|recovery)/.test(window.location.hash)
+    /type=(invite|recovery|signup)/i.test(
+      `${window.location.hash}${window.location.search}`
+    )
   );
 
   useEffect(() => {
@@ -26,7 +28,16 @@ function App() {
       setSession(data.session);
       setCheckingSession(false);
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (
+        event === "PASSWORD_RECOVERY" ||
+        (event === "SIGNED_IN" &&
+          /type=(invite|recovery|signup)/i.test(
+            `${window.location.hash}${window.location.search}`
+          ))
+      ) {
+        setPasswordSetup(true);
+      }
       setSession(nextSession);
       setProfile(null);
       setProfileError("");

@@ -16,9 +16,6 @@ const json = (status: number, body: unknown) =>
 
 const LIVE_APP_URL = "https://task-management-system-4xj4.vercel.app/";
 
-const isRateLimited = (message: string | undefined) =>
-  /rate limit|email rate/i.test(message ?? "");
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -65,78 +62,65 @@ Deno.serve(async (req) => {
         return json(400, { error: "Name, role, and valid email are required" });
       }
 
-      const id = Date.now();
-      const colors = [
-        "bg-indigo-500",
-        "bg-emerald-500",
-        "bg-sky-500",
-        "bg-amber-500",
-        "bg-rose-500",
-        "bg-violet-500",
-      ];
-      const { error: insertError } = await admin.from("members").insert({
-        id,
-        name,
-        role,
-        email,
-        color: colors[id % colors.length],
-      });
-      if (insertError) {
-        return json(insertError.code === "23505" ? 409 : 500, {
-          error:
-            insertError.code === "23505"
-              ? "A member with this email already exists"
-              : insertError.message || "Could not create member",
-        });
-      }
+      const existingMember = await admin
+        .from("members")
+        .select("id, auth_user_id")
+        .eq("email", email)
+        .maybeSingle();
 
-      let userId: string | null = null;
-      let inviteLink: string | null = null;
-      let emailed = false;
+      let id = existingMember.data?.id as number | undefined;
 
-      const inviteAttempt = await admin.auth.admin.inviteUserByEmail(email, {
-        data: { name, role },
-        redirectTo: LIVE_APP_URL,
-      });
-
-      if (!inviteAttempt.error && inviteAttempt.data.user) {
-        userId = inviteAttempt.data.user.id;
-        emailed = true;
-      } else if (isRateLimited(inviteAttempt.error?.message)) {
-        const linkAttempt = await admin.auth.admin.generateLink({
-          type: "invite",
+      if (!id) {
+        id = Date.now();
+        const colors = [
+          "bg-indigo-500",
+          "bg-emerald-500",
+          "bg-sky-500",
+          "bg-amber-500",
+          "bg-rose-500",
+          "bg-violet-500",
+        ];
+        const { error: insertError } = await admin.from("members").insert({
+          id,
+          name,
+          role,
           email,
-          options: {
-            data: { name, role },
-            redirectTo: LIVE_APP_URL,
-          },
+          color: colors[id % colors.length],
         });
-        if (linkAttempt.error || !linkAttempt.data.user) {
-          await admin.from("members").delete().eq("id", id);
-          return json(502, {
+        if (insertError) {
+          return json(insertError.code === "23505" ? 409 : 500, {
             error:
-              linkAttempt.error?.message ??
-              "Could not create invitation while email is rate limited",
+              insertError.code === "23505"
+                ? "A member with this email already exists"
+                : insertError.message || "Could not create member",
           });
         }
-        userId = linkAttempt.data.user.id;
-        inviteLink = linkAttempt.data.properties?.action_link ?? null;
-      } else {
-        await admin.from("members").delete().eq("id", id);
+      }
+
+      const linkAttempt = await admin.auth.admin.generateLink({
+        type: "invite",
+        email,
+        options: {
+          data: { name, role },
+          redirectTo: LIVE_APP_URL,
+        },
+      });
+
+      if (linkAttempt.error || !linkAttempt.data.user) {
+        if (!existingMember.data) {
+          await admin.from("members").delete().eq("id", id);
+        }
         return json(502, {
-          error:
-            inviteAttempt.error?.message ?? "Could not send invitation email",
+          error: linkAttempt.error?.message ?? "Could not create invitation link",
         });
       }
 
-      if (!userId) {
-        await admin.from("members").delete().eq("id", id);
-        return json(502, { error: "Could not create invited user" });
-      }
+      const userId = linkAttempt.data.user.id;
+      const inviteLink = linkAttempt.data.properties?.action_link ?? null;
 
       const { error: memberUpdateError } = await admin
         .from("members")
-        .update({ auth_user_id: userId })
+        .update({ auth_user_id: userId, name, role })
         .eq("id", id);
 
       const { error: profileUpsertError } = await admin.from("profiles").upsert({
@@ -146,8 +130,6 @@ Deno.serve(async (req) => {
       });
 
       if (memberUpdateError || profileUpsertError) {
-        await admin.auth.admin.deleteUser(userId);
-        await admin.from("members").delete().eq("id", id);
         return json(500, {
           error:
             memberUpdateError?.message ||
@@ -158,11 +140,10 @@ Deno.serve(async (req) => {
 
       return json(200, {
         invited: true,
-        emailed,
+        emailed: false,
         inviteLink,
-        message: emailed
-          ? "Invitation email sent"
-          : "Email limit reached. Share this live invite link with the member.",
+        message:
+          "Invite ready. Share this live link with the member to create their password.",
       });
     }
 

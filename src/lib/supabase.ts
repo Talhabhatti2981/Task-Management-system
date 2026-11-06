@@ -9,5 +9,12 @@ const publishableKey =
 
 export const supabase =
   supabaseUrl && publishableKey
-    ? createClient(supabaseUrl, publishableKey)
+    ? createClient(supabaseUrl, publishableKey, {
+        auth: {
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true,
+          flowType: "implicit",
+        },
+      })
     : null;

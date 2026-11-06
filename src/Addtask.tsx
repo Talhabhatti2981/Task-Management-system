@@ -327,7 +327,13 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
           email: memberEmail.trim(),
         }),
       });
-      const result = (await response.json()) as { error?: string };
+      const raw = await response.text();
+      let result: { error?: string } = {};
+      try {
+        result = raw ? (JSON.parse(raw) as { error?: string }) : {};
+      } catch {
+        throw new Error("Invite server is updating. Refresh the page and send the invitation again.");
+      }
       if (!response.ok) throw new Error(result.error ?? "Could not invite member");
 
       const { board, shared } = await loadBoard(accessToken);
@@ -356,7 +362,13 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
 
     void authenticatedFetch(`/api/members?id=${id}`, { method: "DELETE" })
       .then(async (response) => {
-        const result = (await response.json()) as { error?: string };
+        const raw = await response.text();
+        let result: { error?: string } = {};
+        try {
+          result = raw ? (JSON.parse(raw) as { error?: string }) : {};
+        } catch {
+          throw new Error("Could not remove member. Refresh and try again.");
+        }
         if (!response.ok) throw new Error(result.error ?? "Could not remove member");
         const { board, shared } = await loadBoard(accessToken);
         skipPersistRef.current = true;

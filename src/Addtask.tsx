@@ -14,8 +14,8 @@ import {
   HiOutlineUserPlus,
   HiOutlineXMark,
 } from "react-icons/hi2";
-import { authenticatedFetch } from "./lib/api";
 import { loadBoard, saveBoard, subscribeBoard } from "./lib/boardStore";
+import { inviteMember, removeMember } from "./lib/workspace";
 import type { Member, Priority, Task, UserProfile } from "./types";
 
 type TaskManagerProps = {
@@ -319,22 +319,11 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
     if (!validateMember()) return;
 
     try {
-      const response = await authenticatedFetch("/api/members", {
-        method: "POST",
-        body: JSON.stringify({
-          name: memberName.trim(),
-          role: memberRole.trim(),
-          email: memberEmail.trim(),
-        }),
+      await inviteMember({
+        name: memberName.trim(),
+        role: memberRole.trim(),
+        email: memberEmail.trim(),
       });
-      const raw = await response.text();
-      let result: { error?: string } = {};
-      try {
-        result = raw ? (JSON.parse(raw) as { error?: string }) : {};
-      } catch {
-        throw new Error("Invite server is updating. Refresh the page and send the invitation again.");
-      }
-      if (!response.ok) throw new Error(result.error ?? "Could not invite member");
 
       const { board, shared } = await loadBoard(accessToken);
       skipPersistRef.current = true;
@@ -360,16 +349,8 @@ const TaskManager = ({ profile, accessToken, onSignOut }: TaskManagerProps) => {
       return;
     }
 
-    void authenticatedFetch(`/api/members?id=${id}`, { method: "DELETE" })
-      .then(async (response) => {
-        const raw = await response.text();
-        let result: { error?: string } = {};
-        try {
-          result = raw ? (JSON.parse(raw) as { error?: string }) : {};
-        } catch {
-          throw new Error("Could not remove member. Refresh and try again.");
-        }
-        if (!response.ok) throw new Error(result.error ?? "Could not remove member");
+    void removeMember(id)
+      .then(async () => {
         const { board, shared } = await loadBoard(accessToken);
         skipPersistRef.current = true;
         updatedAtRef.current = board.updatedAt;

@@ -186,4 +186,70 @@ export const saveWorkspaceBoard = async (board: BoardSnapshot) => {
   }
 };
 
+const readFunctionError = async (error: unknown, data: unknown) => {
+  if (typeof data === "object" && data && "error" in data) {
+    return String((data as { error?: string }).error || "Could not invite member");
+  }
+  const context = (error as { context?: Response } | null)?.context;
+  if (context && typeof context.json === "function") {
+    try {
+      const body = (await context.json()) as { error?: string };
+      if (body?.error) return body.error;
+    } catch {
+      // ignore parse failures
+    }
+  }
+  return error instanceof Error ? error.message : "Could not invite member";
+};
+
+export const inviteMember = async (input: {
+  name: string;
+  role: string;
+  email: string;
+}) => {
+  const client = requireClient();
+  const { data, error } = await client.functions.invoke("invite-member", {
+    body: input,
+  });
+  if (error) throw new Error(await readFunctionError(error, data));
+  if (data && typeof data === "object" && "error" in data) {
+    throw new Error(
+      String((data as { error?: string }).error || "Could not invite member")
+    );
+  }
+};
+
+export const removeMember = async (id: number) => {
+  const client = requireClient();
+  const { data: sessionData } = await client.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error("Your session has expired. Sign in again.");
+
+  const supabaseUrl =
+    import.meta.env.VITE_SUPABASE_URL ||
+    "https://fnyshqcxndhevdkglvpo.supabase.co";
+  const publishableKey =
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZueXNocWN4bmRoZXZka2dsdnBvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM5ODE2ODksImV4cCI6MjEwOTU1NzY4OX0.NZj9BmWV1LIlO4k2hGQg15a0_6HwnAijHBvpj2B2LTU";
+
+  const response = await fetch(
+    `${supabaseUrl}/functions/v1/invite-member?id=${id}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: publishableKey,
+      },
+    }
+  );
+  const raw = await response.text();
+  let result: { error?: string } = {};
+  try {
+    result = raw ? (JSON.parse(raw) as { error?: string }) : {};
+  } catch {
+    throw new Error("Could not remove member");
+  }
+  if (!response.ok) throw new Error(result.error ?? "Could not remove member");
+};
+
 export { emptyBoard };

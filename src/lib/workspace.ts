@@ -20,13 +20,14 @@ const requireClient = () => {
 
 export const loadProfile = async (): Promise<UserProfile> => {
   const client = requireClient();
-  const { data: authData, error: authError } = await client.auth.getUser();
-  if (authError || !authData.user) throw new Error("Sign in to continue");
+  const { data: sessionData } = await client.auth.getSession();
+  const user = sessionData.session?.user;
+  if (!user) throw new Error("Sign in to continue");
 
   const { data: profile, error: profileError } = await client
     .from("profiles")
     .select("role, member_id")
-    .eq("user_id", authData.user.id)
+    .eq("user_id", user.id)
     .maybeSingle();
   if (profileError) throw new Error("Could not load user profile");
   if (!profile || (profile.role !== "admin" && profile.role !== "member")) {
@@ -46,22 +47,23 @@ export const loadProfile = async (): Promise<UserProfile> => {
     memberId: profile.member_id,
     name:
       memberResult.data?.name ??
-      (typeof authData.user.user_metadata.name === "string"
-        ? authData.user.user_metadata.name
-        : authData.user.email) ??
+      (typeof user.user_metadata.name === "string"
+        ? user.user_metadata.name
+        : user.email) ??
       "Admin",
-    email: authData.user.email ?? memberResult.data?.email ?? "",
+    email: user.email ?? memberResult.data?.email ?? "",
   };
 };
 
 export const touchActivity = async () => {
   const client = requireClient();
-  const { data: authData } = await client.auth.getUser();
-  if (!authData.user) return;
+  const { data: sessionData } = await client.auth.getSession();
+  const userId = sessionData.session?.user.id;
+  if (!userId) return;
   await client
     .from("profiles")
     .update({ last_seen_at: new Date().toISOString() })
-    .eq("user_id", authData.user.id);
+    .eq("user_id", userId);
 };
 
 const mapBoard = (

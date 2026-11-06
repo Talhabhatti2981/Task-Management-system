@@ -2,6 +2,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "headers": [
+    {
+      "source": "/",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    }
+  ],
   "env": {
     "APP_URL": "https://task-management-system-4xj4.vercel.app",
     "SUPABASE_URL": "https://fnyshqcxndhevdkglvpo.supabase.co",
